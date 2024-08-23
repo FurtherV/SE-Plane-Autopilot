@@ -1,0 +1,24 @@
+﻿R e a d m e
+-----------
+
+Usage:
+1. Create three groups of wings namely "Elevators", "Ailerons" and "Rudders".
+2. (Optional) Set your primary cockpit as main cockpit.
+3. Add this script to the PB and compile it.
+4. Control the autopilot using the following arguments:
+
+Available Arguments:
+- refresh | Refreshes the used blocks by this script
+- <on> | Enables the autopilot
+- <off> | Disabled the autopilot
+- set <type> <value> | Sets the desired value for <type>
+- add <type> <value> | Adds value to desired value of <type>
+- sub <type> <value> | Removes value from desired value of <type>
+- reset <type> | Resets value of <type> to null
+- reset all | Resets value of all available <type> to null
+
+- Autopilot will only attempt to reach non-null desired values
+- <type> can be one of "Pitch", "Roll", "Bearing"
+- Negatives values for set must be wrapped in "", like "-4"
+
+	

@@ -1,0 +1,162 @@
+﻿using Sandbox.ModAPI.Ingame;
+using Sandbox.ModAPI.Interfaces;
+using System;
+using System.Collections.Generic;
+using VRageMath;
+
+namespace IngameScript
+{
+    partial class Program : MyGridProgram
+    {
+        const string GroupName = "Elevators";
+        const double TimeStep = 1.0 / 6.0;
+        const float TrimOffset = 15f;
+        const double Kp = 5;
+        const double Ki = 0;
+        const double Kd = 0;
+
+        private PID _pid;
+        private List<IMyTerminalBlock> _wings;
+        private double? _desiredPitch = null;
+        private IMyBlockGroup _group;
+        private IMyShipController _shipController;
+        private List<IMyShipController> _foundShipControllers;
+
+        public Program()
+        {
+            Runtime.UpdateFrequency = UpdateFrequency.Update10;
+
+            _pid = new PID(Kp, Ki, Kd, TimeStep);
+            _wings = new List<IMyTerminalBlock>();
+            _group = GridTerminalSystem.GetBlockGroupWithName(GroupName);
+            if (_group != null)
+            {
+                _group.GetBlocksOfType(_wings, IsWing);
+            }
+
+            _foundShipControllers = new List<IMyShipController>();
+            GridTerminalSystem.GetBlocksOfType<IMyShipController>(_foundShipControllers);
+            _foundShipControllers.Sort((c1, c2) => c1.IsMainCockpit.CompareTo(c2.IsMainCockpit));
+        }
+
+        public void Save()
+        {
+
+        }
+
+        public void Main(string argument, UpdateType updateSource)
+        {
+            if (_group == null)
+            {
+                Echo($"ERROR: No group found with name {GroupName}!");
+                return;
+            }
+
+            if (_wings.Count == 0)
+            {
+                Echo($"ERROR: No wings found in group {GroupName}!");
+                return;
+            }
+
+            if (_foundShipControllers.Count == 0)
+            {
+                Echo($"ERROR: No Cockpit or Remote Control Block found!");
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(argument))
+            {
+                if (argument.Equals("dev"))
+                {
+                    Me.CustomData = "";
+
+                    IMyTerminalBlock firstWing = _wings[0];
+                    firstWing.GetProperties(null, (prop) =>
+                    {
+                        Me.CustomData += $"{prop.Id} / {prop.TypeName}" + "\n";
+                        return false;
+                    });
+
+                    return;
+                }
+
+                if (argument.Equals("stop"))
+                {
+                    _desiredPitch = null;
+                    foreach (var wing in _wings)
+                    {
+                        ApplyTrim(wing, 0 + TrimOffset);
+                    }
+                    return;
+                }
+
+                double val;
+                if (double.TryParse(argument, out val))
+                {
+                    // Set desired extension
+                    _desiredPitch = Math.Max(-45, Math.Min(45, val));
+                }
+            }
+
+            if ((updateSource & UpdateType.Update10) != 0)
+            {
+                double currentPitch = Math.Round(GetCurrentPitch(), 1);
+
+                Echo($"Current Pitch: {currentPitch}°");
+                Echo($"Target Pitch: {(_desiredPitch == null ? "Not Set" : _desiredPitch.Value.ToString()) + "°"}");
+
+                if (_desiredPitch == null)
+                    return;
+
+                double error = _desiredPitch.Value - GetCurrentPitch();
+                double control = _pid.Control(error);
+
+                Echo($"Control: {control}");
+
+                foreach (var wing in _wings)
+                {
+                    ApplyTrim(wing, (float)control + TrimOffset);
+                }
+            }
+        }
+
+        private void ApplyTrim(IMyTerminalBlock wing, float trim)
+        {
+            if (float.IsNaN(trim) || float.IsInfinity(trim))
+                return;
+
+            ITerminalProperty<float> trimProp = wing.GetProperty("Draygo.ControlSurface.Trim").AsFloat();
+
+            if (trim != 0)
+            {
+                ITerminalProperty<bool> invertPitchProp = wing.GetProperty("Draygo.ControlSurface.InvertPitch").AsBool();
+                bool invert = invertPitchProp.GetValue(wing);
+                if (invert)
+                    trim *= -1;
+            }
+
+            trimProp.SetValue(wing, trim);
+        }
+
+        private double GetCurrentPitch()
+        {
+            if (_shipController == null)
+                _shipController = _foundShipControllers[0];
+
+            Vector3D up = -_shipController.GetNaturalGravity();
+            Vector3D left = Vector3D.Cross(up, _shipController.WorldMatrix.Forward);
+            Vector3D forward = Vector3D.Cross(left, up);
+
+            double pitch = (float)VectorMath.AngleBetween(forward, _shipController.WorldMatrix.Forward) * Math.Sign(Vector3D.Dot(up, _shipController.WorldMatrix.Forward));
+            return MathHelper.ToDegrees(pitch);
+        }
+        private bool IsWing(IMyTerminalBlock block)
+        {
+            if (block == null)
+                return false;
+
+            ITerminalProperty prop = block.GetProperty("Draygo.ControlSurface.Trim");
+            return prop != null;
+        }
+    }
+}
